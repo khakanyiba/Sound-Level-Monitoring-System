@@ -1,60 +1,69 @@
+#!/usr/bin/env python3
+import RPi.GPIO as GPIO
 import socket
-import sounddevice as sd
-import numpy as np
-import RPi.GPIO as GPIO  # Import GPIO library for Raspberry Pi
-import time  # Import time for buzzer duration
+import time
+import math
 
-# GPIO setup
-BUZZER_PIN = 18  # Example GPIO pin for the buzzer
-GPIO.setmode(GPIO.BCM)  # Use BCM pin numbering
-GPIO.setup(BUZZER_PIN, GPIO.OUT)  # Set the buzzer pin as output
+# ===== Hardware Setup =====
+SOUND_SENSOR_PIN = 17   # GPIO17 for sound sensor (digital)
+ALERT_LED_PIN = 18      # GPIO18 for visual alert
+UDP_PORT = 5005         # Network port
+THRESHOLD_ACTIVATIONS = 3  # Min triggers to confirm noise
+SAMPLE_WINDOW = 0.1     # Seconds per reading
+DB_CALIBRATION = 30     # Adjust based on sensor sensitivity
 
-# UDP server setup
-UDP_IP = "0.0.0.0"  # Listen on all interfaces
-UDP_PORT = 5005
-THRESHOLD = 80  # Example threshold value
+# ===== Initialize =====
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(SOUND_SENSOR_PIN, GPIO.IN)
+GPIO.setup(ALERT_LED_PIN, GPIO.OUT)
 
-# Create a UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
-print("Server listening on port 5005...")
+def calculate_db(activations):
+    """Convert sensor activations to simulated dB (0-100 scale)"""
+    return min(100, DB_CALIBRATION + (activations * 10))  # Scale factor
 
-# Wait for the client to send its IP address
-data, addr = sock.recvfrom(1024)
-client_ip = addr[0]  # Extract the client's IP address from the received data
-print(f"Client IP received: {client_ip}")
-
-# Function to calculate decibel level from audio data
-def calculate_db(indata):
-    rms = np.sqrt(np.mean(indata**2))  # Calculate root mean square of audio data
-    db = 20 * np.log10(rms)  # Convert RMS to decibels
-    return db
-
-# Callback function to process audio data
-def audio_callback(indata, frames, time, status):
-    db = calculate_db(indata)
-    print(f"Current sound level: {db:.2f} dB")
-
-    # Send data to client
-    message = f"Sound level: {db:.2f} dB"
-    sock.sendto(message.encode(), (client_ip, UDP_PORT))  # Use the client's IP address
-
-    # Send alert if sound level exceeds threshold
-    if db > THRESHOLD:
-        alert_message = f"ALERT! Noise level: {db:.2f} dB"
-        sock.sendto(alert_message.encode(), (client_ip, UDP_PORT))
-
-        # Activate the buzzer
-        print("Activating buzzer...")
-        GPIO.output(BUZZER_PIN, GPIO.HIGH)  # Turn on the buzzer
-        time.sleep(0.5)  # Buzzer duration (adjustable)
-        GPIO.output(BUZZER_PIN, GPIO.LOW)  # Turn off the buzzer
-
-# Start audio stream
 try:
-    print("Starting sound level monitoring...")
-    with sd.InputStream(callback=audio_callback):
-        sd.sleep(100000)  # Monitor for 100 seconds (adjustable)
+    print("""\n
+    SOUND LEVEL MONITORING SERVER
+    ------------------------------
+    Sensor: GPIO{} | Alert LED: GPIO{}
+    Threshold: {} activations => ~{} dB
+    Listening on port {}
+    """.format(SOUND_SENSOR_PIN, ALERT_LED_PIN, 
+               THRESHOLD_ACTIVATIONS, 
+               calculate_db(THRESHOLD_ACTIVATIONS),
+               UDP_PORT))
+
+    while True:
+        activations = 0
+        start_time = time.time()
+        
+        # Sample for SAMPLE_WINDOW seconds
+        while (time.time() - start_time) < SAMPLE_WINDOW:
+            if GPIO.input(SOUND_SENSOR_PIN) == 0:  # 0 = sound detected
+                activations += 1
+            time.sleep(0.001)  # 1ms delay between checks
+        
+        # Convert to dB
+        db_level = calculate_db(activations)
+        status = f"SOUND:{db_level:.1f}dB"
+        
+        # Broadcast to clients
+        sock.sendto(status.encode(), ('<broadcast>', UDP_PORT))
+        print(f"↳ {status}", end='\r')
+        
+        # Trigger alert
+        if db_level > calculate_db(THRESHOLD_ACTIVATIONS):
+            alert = f"ALERT! {db_level:.1f}dB (Threshold exceeded)"
+            sock.sendto(alert.encode(), ('<broadcast>', UDP_PORT))
+            GPIO.output(ALERT_LED_PIN, GPIO.HIGH)
+            time.sleep(0.5)
+            GPIO.output(ALERT_LED_PIN, GPIO.LOW)
+
+except KeyboardInterrupt:
+    print("\nServer stopped")
 finally:
-    GPIO.cleanup()  # Clean up GPIO settings when the program exits
+    GPIO.cleanup()
+    sock.close()

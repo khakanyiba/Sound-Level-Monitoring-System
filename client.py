@@ -1,20 +1,31 @@
+#!/usr/bin/env python3
 import socket
+from datetime import datetime
 
-# UDP client setup
-UDP_IP = "0.0.0.0"  # Listen on all interfaces
 UDP_PORT = 5005
 
-# Create a UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+sock.bind(('0.0.0.0', UDP_PORT))
 
-print("Client listening for broadcast messages on port 5005...")
-while True:
-    data, addr = sock.recvfrom(1024)  # Receive data from the server
-    message = data.decode()
+print("""\n
+SOUND LEVEL MONITOR CLIENT
+--------------------------
+Listening for server broadcasts...
+(Press Ctrl+C to quit)
+""")
 
-    # Check if the message is an alert
-    if "ALERT!" in message:
-        print(f"\n*** ALERT RECEIVED ***\n{message}\n")
-    else:
-        print(f"Received message from {addr}: {message}")
+try:
+    while True:
+        data, addr = sock.recvfrom(1024)
+        msg = data.decode()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        if "ALERT" in msg:
+            print(f"\033[91m{timestamp} - {msg}\033[0m")  # Red for alerts
+        else:
+            print(f"{timestamp} - {msg}")
+
+except KeyboardInterrupt:
+    print("\nClient stopped")
+finally:
+    sock.close()
