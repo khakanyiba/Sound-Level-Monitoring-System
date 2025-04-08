@@ -11,14 +11,14 @@ print("""\n
 SOUND LEVEL MONITOR CLIENT
 --------------------------
 Listening for server broadcasts...
-(Press Ctrl+C to quit)
+(Ctrl+C to quit)
 """)
 
 try:
     while True:
         data, addr = sock.recvfrom(1024)
         msg = data.decode()
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        timestamp = datetime.now().strftime("%H:%M:%S")
         
         if "ALERT" in msg:
             print(f"\033[91m{timestamp} - {msg}\033[0m")  # Red for alerts
