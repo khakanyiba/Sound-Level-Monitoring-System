@@ -42,10 +42,10 @@ try:
     while True:
         if detect_sound():
             alert_msg = "ALERT: Noise detected!"
-            sock.sendto(alert_msg.encode(), ('255.255.255.255', UDP_PORT))
+            sock.sendto(alert_msg.encode(), ('172.21.12.41', UDP_PORT))
             print(f"[{time.ctime()}] {alert_msg}")
         else:
-            sock.sendto(b"STATUS: Normal", ('255.255.255.255', UDP_PORT))
+            sock.sendto(b"STATUS: Normal", ('172.21.12.41', UDP_PORT))
         
         time.sleep(0.1)
 
